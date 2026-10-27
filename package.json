@@ -1,0 +1,12 @@
+{
+  "name": "personas-api-dashboard",
+  "private": true,
+  "scripts": {
+    "setup": "npm --prefix Backend ci",
+    "api": "npm --prefix Backend run dev",
+    "dashboard": "npm --prefix Backend run dashboard",
+    "migrate": "npm --prefix Backend run migrate",
+    "build": "npm --prefix Backend run build",
+    "test": "npm --prefix Backend test && node --test dashboard-metricas/tests/dashboard.test.mjs"
+  }
+}

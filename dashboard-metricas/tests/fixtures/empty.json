@@ -1,0 +1,27 @@
+{
+  "updatedAt": "2026-01-01T12:00:00.000Z",
+  "days": 30,
+  "searches": [],
+  "metrics": {
+    "active_installations": 0,
+    "sessions": 0,
+    "searches_completed": 0,
+    "searches_failed": 0,
+    "searches_cancelled": 0,
+    "subjective_rating_average": null,
+    "subjective_rating_distribution": {},
+    "related": {
+      "rating_coverage": null,
+      "reviewed_completions": 0,
+      "sessions": {
+        "without_observed_end": 0
+      },
+      "delivery": {
+        "sample_size": 0,
+        "events_retried": 0,
+        "average_delay_ms": null,
+        "p95_delay_ms": null
+      }
+    }
+  }
+}

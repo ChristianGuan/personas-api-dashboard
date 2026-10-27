@@ -1,0 +1,42 @@
+{
+  "name": "personas-analytics",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file=.env dist/main.js",
+    "dev": "node --env-file=.env --import tsx src/main.ts",
+    "migrate": "node --env-file=.env --import tsx src/infrastructure/migrate.ts",
+    "retention": "node --env-file=.env --import tsx src/infrastructure/retention.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "smoke": "node --env-file=.env scripts/smoke.mjs",
+    "dashboard": "node --env-file=.env scripts/dashboard-server.mjs",
+    "dashboard:export": "node --env-file=.env scripts/dashboard-server.mjs --export"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/swagger": "^11.4.7",
+    "@nestjs/throttler": "^6.4.0",
+    "express": "^5.1.0",
+    "pg": "^8.16.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "multer": "^2.5.0",
+    "js-yaml": "^5.5.0"
+  }
+}

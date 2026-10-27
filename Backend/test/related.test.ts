@@ -1,0 +1,72 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {Pool} from 'pg';
+import {readFile} from 'node:fs/promises';
+import {migrate} from '../src/infrastructure/migrate';
+import {PostgresAnalytics} from '../src/infrastructure/postgres';
+import {AnalyticsEvent} from '../src/domain/analytics';
+import {eventSchema} from '../src/presentation/validation';
+const id=randomUUID(),sessionId=randomUUID(),searchId=randomUUID();
+const base={eventId:randomUUID(),installationId:id,schemaVersion:2 as const,platform:'ios' as const,appVersion:'0.9.0+13',createdAt:new Date().toISOString()};
+const done={...base,type:'search_completed' as const,payload:{sessionId,searchId,timingSource:'live',photosPlanned:100,photosProcessed:100,unreadableCount:5,matchesShown:12,durationMs:2200,setupMs:200,processingMs:2000}};
+test('v2 rejects arbitrary metadata, incoherent counts, timing and private properties',()=>{
+ assert(eventSchema().safeParse(done).success);
+ const diagnostics={readMs:20,decodeMs:50,engineMs:1500,cacheHits:20,cacheMisses:75,cancelLatencyMs:5,timeToCancelMs:100};
+ assert(eventSchema().safeParse({...done,payload:{...done.payload,...diagnostics}}).success);
+ for(const extra of [{cacheHits:101,cacheMisses:0},{cacheHits:1},{readMs:-1},{engineMs:86400001},{cacheHits:0.5,cacheMisses:0},{albumName:'private'}]) assert(!eventSchema().safeParse({...done,payload:{...done.payload,...extra}}).success);
+
+ for(const payload of [{...done.payload,photosProcessed:101},{...done.payload,unreadableCount:99},{...done.payload,setupMs:3000},{...done.payload,albumName:'private'},{...done.payload,sessionId:'device-id'}])assert(!eventSchema().safeParse({...done,payload}).success);
+ assert(!eventSchema().safeParse({...done,deviceId:'private'}).success);
+ assert(!eventSchema().safeParse({...done,platform:'other'}).success);
+ assert(!eventSchema().safeParse({...done,appVersion:'private-name'}).success);
+ const {durationMs,setupMs,processingMs,...rest}=done.payload;
+ assert(eventSchema().safeParse({...done,payload:{...rest,timingSource:'unavailable'}}).success);
+ assert(!eventSchema().safeParse({...done,payload:{...done.payload,timingSource:'unavailable'}}).success);
+});
+test('v1 migration preserves data; v2 deduplicates search outcomes, correlates ratings and retains anonymous aggregates',{skip:!process.env.TEST_DATABASE_URL},async()=>{
+ const schema='v2_'+randomUUID().replaceAll('-','');const root=new Pool({connectionString:process.env.TEST_DATABASE_URL});
+ await root.query(`CREATE SCHEMA "${schema}"`);
+ const db=new Pool({connectionString:process.env.TEST_DATABASE_URL,options:`-c search_path=${schema}`,max:1});
+ try {
+  await db.query(await readFile('src/infrastructure/migrations/001_analytics.sql','utf8'));
+  await db.query('CREATE TABLE schema_migrations(version text PRIMARY KEY,applied_at timestamptz DEFAULT now())');
+  await db.query("INSERT INTO schema_migrations(version) VALUES('001_analytics.sql')");
+  const repo=new PostgresAnalytics(db);const hash='a'.repeat(64);
+  await repo.register(id,hash);
+  await db.query("INSERT INTO analytics_events VALUES($1,$2,'session_started',1,now(),'{}')",[randomUUID(),id]);
+  await migrate(db);await migrate(db);
+  assert.equal((await db.query('SELECT * FROM analytics_events')).rowCount,1);
+  assert.equal((await db.query('SELECT received_at FROM analytics_events')).rows[0].received_at,null);
+  const event=(type:AnalyticsEvent['type'],payload:AnalyticsEvent['payload']):AnalyticsEvent=>({...base,eventId:randomUUID(),type,payload});
+  const started=event('search_started',{sessionId,searchId,photosPlanned:100});
+  const rating=event('results_rated',{sessionId,searchId,stars:2});
+  // Out of order ingestion still correlates by installation and random searchId.
+  assert.equal((await repo.ingest(id,hash,[done,rating,started])).length,3);
+  assert.equal((await repo.ingest(id,hash,[{...done,deliveryAttempts:3}])).length,1);
+  assert.equal((await db.query('SELECT delivery_attempts FROM analytics_events WHERE event_id=$1',[done.eventId])).rows[0].delivery_attempts,3);
+  assert.equal((await repo.ingest(id,hash,[event('search_cancelled',done.payload),event('results_rated',{sessionId,searchId,stars:5})])).length,0);
+  await assert.rejects(repo.ingest(id,hash,[event('search_completed',{...done.payload,searchId:randomUUID(),photosProcessed:101})]));
+  const other=randomUUID();await repo.register(other,'b'.repeat(64));
+  await repo.ingest(other,'b'.repeat(64),[{...event('results_rated',{sessionId,searchId,stars:5}),installationId:other}]);
+  const diagnosticEvent=event('search_completed',{...done.payload,searchId:randomUUID(),readMs:20,decodeMs:50,engineMs:1500,cacheHits:20,cacheMisses:75,cancelLatencyMs:5});
+  assert.equal((await repo.ingest(id,hash,[diagnosticEvent])).length,1);
+  await assert.rejects(repo.ingest(id,hash,[event('search_completed',{...done.payload,searchId:randomUUID(),cacheHits:101,cacheMisses:0})]));
+  await db.query('DELETE FROM analytics_events WHERE event_id=$1',[diagnosticEvent.eventId]);
+  const metrics=await repo.metrics(new Date(Date.now()-60000),new Date(Date.now()+1000));
+  const related=metrics.related as any;
+  assert.equal(related.searches_started,1);assert.equal(related.searches_completed,1);assert.equal(related.rating_coverage,1);
+  assert.equal(related.photos_processed,100);assert.equal(related.readable_photo_rate,0.95);assert.equal(related.average_photos_per_wall_second,50);
+  assert.equal(related.platform_versions[0].subjective_rating_average,2);assert.equal(related.delivery.events_retried,1);
+  assert.equal(related.legacy_event_sample_size,1);
+  const {durationMs,setupMs,processingMs,...unknownTiming}=done.payload;
+  assert.equal((await repo.ingest(id,hash,[event('search_completed',{...unknownTiming,searchId:randomUUID(),timingSource:'unavailable'})])).length,1);
+  await db.query("UPDATE analytics_events SET created_at=now()-interval '31 days' WHERE installation_id=$1",[id]);
+  await repo.retain();
+  const history=await repo.history();const serialized=JSON.stringify(history);
+  assert(!serialized.includes(id));assert(!serialized.includes(searchId));assert(!serialized.includes(sessionId));
+  assert(history.some(r=>r.dimension==='platform:ios'));
+  assert(history.every(r=>r.dimension!==null));
+  await repo.remove(other,'b'.repeat(64));assert.equal((await db.query('SELECT * FROM analytics_events')).rowCount,0);
+ }finally{await db.end();await root.query(`DROP SCHEMA "${schema}" CASCADE`);await root.end();}
+});
