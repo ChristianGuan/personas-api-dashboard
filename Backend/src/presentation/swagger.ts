@@ -49,12 +49,12 @@ export function analyticsSchemas(retentionDays: number): Record<string, SchemaOb
   return schemas;
 }
 export function setupSwagger(app: INestApplication, retentionDays: number) {
-  const config = new DocumentBuilder().setTitle('Personas · API de analítica').setVersion('1.1.0')
+  const config = new DocumentBuilder().setTitle('Halladin · API de analítica').setVersion('1.1.0')
     .setDescription('Analítica opcional sin imágenes ni datos biométricos. En Authorize, usa installationToken para registro/lotes/borrado y adminToken para reportes. Pega sólo el token, sin el prefijo Bearer. Genera tu token de instalación con node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))". Registra primero una instalación UUIDv4. ADMIN_TOKEN está en tu .env local; nunca va en Flutter. Los ejemplos contienen identificadores ficticios: usa un eventId nuevo para cada evento. Límite64KiB y 60peticiones/min; registro10/min.')
     .addBearerAuth({type:'http',scheme:'bearer',bearerFormat:'64 caracteres hexadecimales',description:'Credencial propia de la instalación (aleatoria256bits); reutiliza la misma al enviar o borrar.'},'installationToken')
     .addBearerAuth({type:'http',scheme:'bearer',description:'ADMIN_TOKEN del entorno del backend. Sólo reportes.'},'adminToken').build();
   const document = SwaggerModule.createDocument(app,config);
   document.components ??= {};
   document.components.schemas = {...document.components.schemas,...analyticsSchemas(retentionDays)};
-  SwaggerModule.setup('docs',app,document,{jsonDocumentUrl:'docs-json',swaggerOptions:{persistAuthorization:false,validatorUrl:null,displayRequestDuration:true},customSiteTitle:'Personas · Swagger'});
+  SwaggerModule.setup('docs',app,document,{jsonDocumentUrl:'docs-json',swaggerOptions:{persistAuthorization:false,validatorUrl:null,displayRequestDuration:true},customSiteTitle:'Halladin · Swagger'});
 }

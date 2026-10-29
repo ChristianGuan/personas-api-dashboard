@@ -1,4 +1,4 @@
-# Personas · API y dashboard
+# Halladin · API y dashboard
 
 Repositorio independiente del servidor de analítica y su dashboard local. La app móvil se mantiene en `ChristianGuan/personas-flutter` y se conecta por HTTPS; no comparte archivos ni credenciales de BD con este repositorio.
 
